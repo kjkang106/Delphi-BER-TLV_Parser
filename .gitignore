@@ -1,0 +1,5 @@
+Source/Debug
+Source/Release
+Source/__history
+*.local
+*.identcache
