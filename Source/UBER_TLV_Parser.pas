@@ -33,7 +33,7 @@ type
     function ReadTag(Stream: TStream): Integer;
     function ReadLength(Stream: TStream): Integer;
     function IsConstructedTag(Tag: Integer): Boolean;
-    procedure ParseConstructedValue(SubStream: TStream; var ParentTLV: TBER_TLV);
+    procedure ParseStream(Stream: TStream; ParentList: TList<TBER_TLV>);
 
     function HexStringToInt(const HexStr: string): Integer;
     function GetBER_TLV(HexStr: string): TBER_TLV;
@@ -341,85 +341,6 @@ begin
     Result:= (Result shl 8) or Bytes[bi];
 end;
 
-procedure TBER_TLV_Parser.ParseConstructedValue(SubStream: TStream; var ParentTLV: TBER_TLV);
-var
-  Tag, Length: Integer;
-  Value: TBytes;
-  TLV: TBER_TLV;
-  IsConstructed: Boolean;
-  InnerStream: TMemoryStream;
-begin
-  while SubStream.Position < SubStream.Size do
-  begin
-    Tag := ReadTag(SubStream);
-    IsConstructed := IsConstructedTag(Tag);
-    Length := ReadLength(SubStream);
-    if SubStream.Position + Length > SubStream.Size then
-      Length := SubStream.Size - SubStream.Position;
-
-    SetLength(Value, Length);
-    SubStream.ReadBuffer(Value[0], Length);
-
-    TLV := TBER_TLV.Create(Tag, Length, Value, IsConstructed);
-    ParentTLV.SubItems.Add(TLV);
-
-    if IsConstructed then
-    begin
-      InnerStream := TMemoryStream.Create;
-      try
-        InnerStream.WriteBuffer(Value[0], Length);
-        InnerStream.Position := 0;
-        ParseConstructedValue(InnerStream, TLV);
-      finally
-        InnerStream.Free;
-      end;
-    end;
-  end;
-end;
-
-procedure TBER_TLV_Parser.ParseHexString(const HexStr: string);
-var
-  Stream, SubStream: TMemoryStream;
-  Tag, Length: Integer;
-  Value: TBytes;
-  TLV: TBER_TLV;
-  IsConstructed: Boolean;
-begin
-  FzBER_TLV.Clear;
-
-  Stream := HexToStream(HexStr);
-  try
-    while Stream.Position < Stream.Size do
-    begin
-      Tag := ReadTag(Stream);
-      IsConstructed := IsConstructedTag(Tag);
-      Length := ReadLength(Stream);
-      if Stream.Position + Length > Stream.Size then
-        Length := Stream.Size - Stream.Position;
-
-      SetLength(Value, Length);
-      Stream.ReadBuffer(Value[0], Length);
-
-      TLV := TBER_TLV.Create(Tag, Length, Value, IsConstructed);
-      FzBER_TLV.Add(TLV);
-
-      if IsConstructed then
-      begin
-        SubStream := TMemoryStream.Create;
-        try
-          SubStream.WriteBuffer(Value[0], Length);
-          SubStream.Position := 0;
-          ParseConstructedValue(SubStream, TLV);
-        finally
-          SubStream.Free;
-        end;
-      end;
-    end;
-  finally
-    Stream.Free;
-  end;
-end;
-
 function TBER_TLV_Parser.ParsedTLVToHexString: string;
 var
   TLV: TBER_TLV;
@@ -427,6 +348,55 @@ begin
   Result := '';
   for TLV in FzBER_TLV do
     Result := Result + TLV.ToHexString + sLineBreak;
+end;
+
+procedure TBER_TLV_Parser.ParseHexString(const HexStr: string);
+var
+  Stream: TMemoryStream;
+begin
+  FzBER_TLV.Clear;
+  Stream := HexToStream(HexStr);
+  try
+    ParseStream(Stream, FzBER_TLV);
+  finally
+    Stream.Free;
+  end;
+end;
+
+procedure TBER_TLV_Parser.ParseStream(Stream: TStream; ParentList: TList<TBER_TLV>);
+var
+  Tag, Length: Integer;
+  Value: TBytes;
+  TLV: TBER_TLV;
+  IsConstructed: Boolean;
+  SubStream: TMemoryStream;
+begin
+  while Stream.Position < Stream.Size do
+  begin
+    Tag := ReadTag(Stream);
+    IsConstructed := IsConstructedTag(Tag);
+    Length := ReadLength(Stream);
+    if Stream.Position + Length > Stream.Size then
+      Length := Stream.Size - Stream.Position;
+
+    SetLength(Value, Length);
+    Stream.ReadBuffer(Value[0], Length);
+
+    TLV := TBER_TLV.Create(Tag, Length, Value, IsConstructed);
+    ParentList.Add(TLV);
+
+    if IsConstructed then
+    begin
+      SubStream := TMemoryStream.Create;
+      try
+        SubStream.WriteBuffer(Value[0], Length);
+        SubStream.Position := 0;
+        ParseStream(SubStream, TLV.SubItems);
+      finally
+        SubStream.Free;
+      end;
+    end;
+  end;
 end;
 
 end.
